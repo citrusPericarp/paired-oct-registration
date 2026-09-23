@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "paired-oct-registration"
+version = "0.2.0"
+description = "Reproducible registration for paired preoperative and postoperative OCT B-scans"
+requires-python = ">=3.10"
+dependencies = [
+  "matplotlib>=3.7",
+  "numba>=0.58",
+  "numpy>=1.24",
+  "opencv-python==4.11.0.86",
+  "pillow>=10",
+  "scikit-image>=0.21",
+  "scipy>=1.10",
+]
+
+[project.scripts]
+paired-oct-register = "paired_oct_registration.cli:main"
+paired-oct-reconstruct = "paired_oct_registration.reconstruction:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
