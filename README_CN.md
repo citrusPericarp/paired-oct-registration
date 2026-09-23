@@ -42,3 +42,6 @@ mask 和 boundary 是算法生成的结构先验，不是人工标注或临床�
 结构 mask；`aligned_boundary_B` 是从 `aligned_mask_B` 提取的上下边界和
 原始有效列标记；`evaluation_mask` 是有效域内 `mask_A` 与 `aligned_mask_B`
 的交集，用于配对评价，不是新的临床标注。
+
+代码仓库：https://github.com/citrusPericarp/paired-oct-registration
+（MIT 许可证）。临床图像和元数据单独管理，不包含在本仓库中。

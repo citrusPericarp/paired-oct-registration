@@ -73,5 +73,6 @@ whose source coordinates are inside the finite `real_B` image. The
 `aligned_mask_B` and is intended for paired measurements rather than as a
 clinical annotation.
 
-[AUTHOR INPUT NEEDED: add the final code license, GitHub URL, citation, and data
-repository DOI/accession before public upload.]
+Code repository: https://github.com/citrusPericarp/paired-oct-registration
+(MIT license). Clinical images and metadata are maintained separately and are
+not included in this repository.
