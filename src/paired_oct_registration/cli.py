@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--dataset", type=Path, required=True, help="Downloaded dataset directory")
     parser.add_argument("--output", type=Path, required=True, help="Directory for generated files")
-    parser.add_argument("--manifest", default="pairs.csv", help="Manifest path relative to dataset")
+    parser.add_argument("--manifest", default="manifests/pairs.csv", help="Manifest path relative to dataset")
     parser.add_argument("--sample-id", action="append", default=[], help="Run only selected sample IDs")
     parser.add_argument("--limit", type=int, default=None, help="Run the first N selected rows")
     args = parser.parse_args(argv)

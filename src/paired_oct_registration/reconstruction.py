@@ -72,7 +72,7 @@ def main() -> None:
     parser.add_argument('--output', type=Path, required=True)
     parser.add_argument('--sample-id', action='append')
     args = parser.parse_args()
-    with (args.dataset / 'pairs.csv').open(encoding='utf-8-sig', newline='') as handle:
+    with (args.dataset / 'manifests/pairs.csv').open(encoding='utf-8-sig', newline='') as handle:
         rows = list(csv.DictReader(handle))
     if args.sample_id:
         rows = [row for row in rows if row['sample_id'] in args.sample_id]

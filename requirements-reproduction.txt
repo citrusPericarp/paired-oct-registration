@@ -1,5 +1,6 @@
-# Reference environment used for the corrected release: Python 3.11.15.
-numpy==2.0.1
-scipy==1.17.1
+# Numerical pins for the 2026-10-01 data run; tested generation Python 3.9.23.
+# Public package installation: Python >=3.10.
+numpy==1.26.4
+scipy==1.10.1
 opencv-python==4.11.0.86
 Pillow==11.1.0

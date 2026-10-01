@@ -37,7 +37,7 @@ DERIVED_PRODUCTS = {
 
 
 def rows_from(dataset: Path) -> list[dict[str, str]]:
-    with (dataset / "pairs.csv").open(encoding="utf-8-sig", newline="") as handle:
+    with (dataset / "manifests/pairs.csv").open(encoding="utf-8-sig", newline="") as handle:
         rows = list(csv.DictReader(handle))
     if len(rows) != 2000 or len({row["sample_id"] for row in rows}) != 2000:
         raise RuntimeError(f"expected 2000 unique pairs, found {len(rows)}")

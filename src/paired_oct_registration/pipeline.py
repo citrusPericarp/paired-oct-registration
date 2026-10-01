@@ -45,7 +45,7 @@ def register_pair(
     postoperative_boundary_path: Path,
     output_root: Path,
     node_count: int = 64,
-    minimum_valid_fraction: float = 0.70,
+    minimum_valid_fraction: float = 0.0,
     observability_threshold: float = 0.50,
 ) -> dict[str, Any]:
     """Register one postoperative B-scan to its paired preoperative B-scan.
@@ -72,6 +72,13 @@ def register_pair(
     preoperative_observable = np.asarray(preoperative_observation["registration_valid"], dtype=bool)
     postoperative_observable = np.asarray(postoperative_observation["registration_valid"], dtype=bool)
 
+    preoperative_geometry = geometry_valid_from_observation(
+        preoperative_observation, preoperative_observable
+    )
+    postoperative_geometry = geometry_valid_from_observation(
+        postoperative_observation, postoperative_observable
+    )
+
     phase = phase_forward_translation(
         retinal_feature(preoperative, preoperative_boundary, preoperative_observable),
         retinal_feature(postoperative, postoperative_boundary, postoperative_observable),
@@ -82,15 +89,11 @@ def register_pair(
         phase,
         a_valid_override=preoperative_observable,
         b_valid_override=postoperative_observable,
+        a_geometry_valid=preoperative_geometry,
+        b_geometry_valid=postoperative_geometry,
     )
     forward_tx = float(translation["selected_forward_tx"])
 
-    preoperative_geometry = geometry_valid_from_observation(
-        preoperative_observation, preoperative_observable
-    )
-    postoperative_geometry = geometry_valid_from_observation(
-        postoperative_observation, postoperative_observable
-    )
     preoperative_registration_boundary = make_registration_boundary(
         preoperative_boundary, preoperative_geometry
     )
@@ -171,7 +174,15 @@ def register_pair(
     postoperative_for_local_registration[:, ~registration_domain] = 0.0
     preoperative_mask_in_domain = preoperative_mask & registration_domain[None, :]
     postoperative_mask_in_domain = postoperative_mask & postoperative_boundary.valid[None, :]
-    local_valid_columns = preoperative_geometry & postoperative_geometry & registration_domain
+    # The local comparison is in A coordinates after the horizontal shift.
+    postoperative_geometry_at_target = np.interp(
+        source_x_line,
+        np.arange(postoperative.shape[1], dtype=np.float32),
+        postoperative_geometry.astype(np.float32),
+        left=0.0,
+        right=0.0,
+    ) >= 0.5
+    local_valid_columns = preoperative_geometry & postoperative_geometry_at_target & registration_domain
 
     residual_field, local_stats, residual_nodes = build_regularized_d_oct_field(
         preoperative,
@@ -194,6 +205,7 @@ def register_pair(
     # from rounded observability scores or unprocessed model boundaries.
     parameters = dict(
         format_version=np.int32(2),
+        registration_algorithm_version=np.asarray("20261001-no-whole-image-gate"),
         image_shape=np.asarray(preoperative.shape, dtype=np.int32),
         source_x_line=source_x[0].copy(),
         initial_target_top=target_top.copy(),
@@ -205,6 +217,7 @@ def register_pair(
         forward_translation_x=np.float64(forward_tx),
         common_domain=common_domain.astype(np.uint8),
         registration_domain=registration_domain.astype(np.uint8),
+        local_geometry_domain=safe_geometry_domain(local_valid_columns)[0].astype(np.uint8),
         preoperative_observable_domain=preoperative_observable.astype(np.uint8),
         postoperative_observable_domain=postoperative_observable.astype(np.uint8),
         preoperative_observation_score=np.asarray(preoperative_observation["score"], dtype=np.float32),

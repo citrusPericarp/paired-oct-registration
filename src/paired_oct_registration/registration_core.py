@@ -49,7 +49,7 @@ D_OCT_AXIAL_SMOOTH_SIGMA = 2.0
 D_OCT_MAX_RESIDUAL = 12.0
 
 
-D_OCT_SAFE_MIN_COMMON_FRACTION = 0.75
+D_OCT_SAFE_MIN_COMMON_FRACTION = 0.0  # Retained compatibility name; no whole-image gate.
 
 
 def enforce_monotone_residual_nodes(
@@ -90,8 +90,8 @@ def fovea_candidate(boundary: BoundaryData, valid_override: np.ndarray | None = 
 
     The paper uses the superior point of the thinnest retinal region.  Because
     our masks can have terminal invalid runs, the implementation searches only in the
-    central 20%-80% interval and reports a confidence that is reduced for
-    terminal or low-validity minima.
+    central 25%-75% interval. An unobserved central interval does not provide
+    a fovea candidate, even if the mask contains a numerical minimum elsewhere.
     """
     width = boundary.upper.size
     thickness = gaussian_filter1d(np.maximum(boundary.lower - boundary.upper, 4.0), sigma=8.0, mode="nearest")
@@ -107,12 +107,15 @@ def fovea_candidate(boundary: BoundaryData, valid_override: np.ndarray | None = 
     if valid.size != width:
         valid = boundary.valid
     candidates = candidates[valid[candidates]] if candidates.size else np.arange(width)
+    central_observed = candidates.size > 0
     if candidates.size == 0:
-        candidates = np.arange(width)
+        candidates = np.asarray([width // 2])
     x = int(candidates[np.argmin(thickness[candidates])])
     centrality = float(1.0 - abs(x - 0.5 * (width - 1)) / max(0.5 * width, 1.0))
     confidence = float(np.clip(0.35 + 0.65 * centrality, 0.05, 1.0))
     confidence *= float(np.clip(boundary.quality.get("valid_fraction", 0.0), 0.25, 1.0))
+    if not central_observed:
+        confidence = 0.0
     return {
         "x": float(x),
         "y": float(boundary.upper[x]),
@@ -158,9 +161,24 @@ def choose_translation(
     phase: Mapping[str, float],
     a_valid_override: np.ndarray | None = None,
     b_valid_override: np.ndarray | None = None,
+    *,
+    a_geometry_valid: np.ndarray | None = None,
+    b_geometry_valid: np.ndarray | None = None,
 ) -> Dict[str, float]:
     a_fovea = fovea_candidate(a_boundary, a_valid_override)
     b_fovea = fovea_candidate(b_boundary, b_valid_override)
+    # A central minimum in a model mask is not sufficient evidence for a
+    # landmark. Require the same image-supported geometry used by A-OCT.
+    a_supported = a_fovea["confidence"] > 0.0 and (
+        a_geometry_valid is None or bool(a_geometry_valid[int(a_fovea["x"])])
+    )
+    b_supported = b_fovea["confidence"] > 0.0 and (
+        b_geometry_valid is None or bool(b_geometry_valid[int(b_fovea["x"])])
+    )
+    if not a_supported:
+        a_fovea["confidence"] = 0.0
+    if not b_supported:
+        b_fovea["confidence"] = 0.0
     raw_fovea_tx = a_fovea["x"] - b_fovea["x"]
     fovea_ty = a_fovea["y"] - b_fovea["y"]
     fovea_conf = min(a_fovea["confidence"], b_fovea["confidence"])
@@ -189,6 +207,15 @@ def choose_translation(
         safety_reason = "low_response_phase_ignored"
     tx = float(np.clip((1.0 - phase_weight) * geometry_tx + phase_weight * phase_tx, -MAX_TRUSTED_FOVEA_SHIFT, MAX_TRUSTED_FOVEA_SHIFT))
     ty = float(np.clip((1.0 - phase_weight) * fovea_ty + phase_weight * phase_ty, -128.0, 128.0))
+    if not (a_supported and b_supported):
+        if phase_response >= MIN_PHASE_RESPONSE_FOR_FALLBACK and abs(phase_tx) <= MAX_TRUSTED_FOVEA_SHIFT:
+            tx, ty, phase_weight = phase_tx, phase_ty, 1.0
+            translation_source = "phase_after_unsupported_fovea"
+            safety_reason = "fovea_outside_supported_geometry"
+        else:
+            tx, ty, phase_weight = 0.0, 0.0, 0.0
+            translation_source = "zero_after_unsupported_fovea"
+            safety_reason = "fovea_and_phase_lack_support"
     return {
         "fovea_A_x": a_fovea["x"],
         "fovea_A_y": a_fovea["y"],
@@ -197,6 +224,8 @@ def choose_translation(
         "fovea_A_confidence": a_fovea["confidence"],
         "fovea_B_confidence": b_fovea["confidence"],
         "fovea_confidence_used": fovea_conf,
+        "fovea_A_geometry_supported": float(a_supported),
+        "fovea_B_geometry_supported": float(b_supported),
         "fovea_tx": float(raw_fovea_tx),
         "fovea_ty": float(fovea_ty),
         "phase_weight": float(phase_weight),
@@ -490,37 +519,29 @@ def extrapolate_registration_curve(
     *,
     slope_limit: float = 0.45,
 ) -> np.ndarray:
-    """Continue a trusted curve smoothly beyond its valid interval.
-
-    A constant global fallback can create a visible step exactly where local
-    geometry becomes unreliable.  A short, slope-limited continuation is a
-    safer handover: it preserves the last trusted trend without allowing a
-    weak terminal mask to invent a new bend.
-    """
-    values = np.asarray(values, dtype=np.float32).reshape(-1)
-    valid = np.asarray(valid, dtype=bool).reshape(-1)
+    """Continue broad supported trends without amplifying a weak endpoint."""
+    values = np.asarray(values, dtype=np.float32)
     result = np.full(values.size, float(default), dtype=np.float32)
     start, end = longest_contiguous_run(valid)
-    if start < 0:
+    window, guard = 96, 16
+    length = end - start + 1
+    if start < 0 or length < 2 * window:
         return result
     result[start : end + 1] = values[start : end + 1]
-    span = max(4, min(32, end - start))
-    if end > start:
-        left_delta = np.diff(values[start : start + span + 1])
-        right_delta = np.diff(values[end - span : end + 1])
-        left_slope = float(np.median(left_delta)) if left_delta.size else 0.0
-        right_slope = float(np.median(right_delta)) if right_delta.size else 0.0
-    else:
-        left_slope = right_slope = 0.0
-    left_slope = float(np.clip(left_slope, -slope_limit, slope_limit))
-    right_slope = float(np.clip(right_slope, -slope_limit, slope_limit))
-    if start > 0:
-        left_x = np.arange(start, dtype=np.float32)
-        result[:start] = values[start] + left_slope * (left_x - float(start))
-    if end < values.size - 1:
-        right_x = np.arange(end + 1, values.size, dtype=np.float32)
-        result[end + 1 :] = values[end] + right_slope * (right_x - float(end))
-    return result.astype(np.float32)
+    x = np.arange(values.size, dtype=np.float32)
+    # Estimate each trend inside the reliable interval, away from the terminal
+    # mask closure. A median derivative limits individual boundary outliers.
+    for left in (True, False):
+        lo, hi = (start + guard, start + window) if left else (end - window + 1, end - guard + 1)
+        slope = float(np.clip(np.median(np.diff(values[lo:hi])), -slope_limit, slope_limit))
+        center = float(np.median(x[lo:hi]))
+        intercept = float(np.median(values[lo:hi] - slope * (x[lo:hi] - center)))
+        # Do not project a short observed trend arbitrarily far across an image.
+        position = np.clip(x, start - length, end + length)
+        fitted = intercept + slope * (position - center)
+        side = x < start + guard if left else x > end - guard
+        result[side] = fitted[side]
+    return result
 
 
 def build_a_oct_map(
@@ -578,17 +599,17 @@ def build_a_oct_map(
     fallback_scale = float(np.clip(fallback_scale, A_OCT_SCALE_MIN, A_OCT_SCALE_MAX))
     if not local_geometry:
         domain_weight = np.zeros_like(domain_weight, dtype=np.float32)
-    fallback_scale_curve = extrapolate_registration_curve(scale_raw, common, fallback_scale, slope_limit=0.01)
-    fallback_target_curve = extrapolate_registration_curve(target_a_top_raw, common, fallback_target_top, slope_limit=0.45)
-    fallback_source_curve = extrapolate_registration_curve(source_b_top_raw, common, fallback_source_top, slope_limit=0.45)
-    fallback_thickness_curve = extrapolate_registration_curve(
-        target_thickness,
-        common,
-        max(fallback_target_thickness, 4.0),
-        slope_limit=0.25,
-    )
-    fallback_scale_curve = np.clip(fallback_scale_curve, A_OCT_SCALE_MIN, A_OCT_SCALE_MAX).astype(np.float32)
-    fallback_thickness_curve = np.maximum(fallback_thickness_curve, 4.0).astype(np.float32)
+    fallback_scale_curve = np.full(width, fallback_scale, dtype=np.float32)
+    fallback_target_curve = np.full(width, fallback_target_top, dtype=np.float32)
+    fallback_source_curve = np.full(width, fallback_source_top, dtype=np.float32)
+    fallback_thickness_curve = np.full(width, max(fallback_target_thickness, 4.0), dtype=np.float32)
+    if local_geometry:
+        fallback_scale_curve = extrapolate_registration_curve(scale_raw, common, fallback_scale, slope_limit=0.01)
+        fallback_target_curve = extrapolate_registration_curve(target_a_top_raw, common, fallback_target_top)
+        fallback_source_curve = extrapolate_registration_curve(source_b_top_raw, common, fallback_source_top)
+        fallback_thickness_curve = extrapolate_registration_curve(target_thickness, common, fallback_target_thickness, slope_limit=0.25)
+    fallback_scale_curve = np.clip(fallback_scale_curve, A_OCT_SCALE_MIN, A_OCT_SCALE_MAX)
+    fallback_thickness_curve = np.maximum(fallback_thickness_curve, 4.0)
     scale = ((1.0 - domain_weight) * fallback_scale_curve + domain_weight * scale_raw).astype(np.float32)
     target_a_top = ((1.0 - domain_weight) * fallback_target_curve + domain_weight * target_a_top_raw).astype(np.float32)
     target_thickness_used = ((1.0 - domain_weight) * fallback_thickness_curve + domain_weight * target_thickness).astype(np.float32)
@@ -858,7 +879,7 @@ def build_regularized_d_oct_field(
     a_boundary: BoundaryData,
     valid_columns: np.ndarray,
     node_count: int = 64,
-    minimum_valid_fraction: float = 0.70,
+    minimum_valid_fraction: float = 0.0,
 ) -> Tuple[np.ndarray, Dict[str, float], np.ndarray]:
     """Estimate a smooth axial layer deformation field from A-scan texture."""
     height, width = a.shape
@@ -867,16 +888,16 @@ def build_regularized_d_oct_field(
     residual_nodes = np.full((node_count, width), np.nan, dtype=np.float32)
     domain, domain_weight, domain_start, domain_end = safe_geometry_domain(valid_columns)
     common_fraction = float(domain.mean())
-    # A low-coverage weak mask is not allowed to drive a dense deformation
-    # field.  A-OCT/global translation remains available, while D-OCT falls
-    # back to the zero residual field and records the reason for auditability.
-    safe_fraction_threshold = max(float(minimum_valid_fraction), D_OCT_SAFE_MIN_COMMON_FRACTION)
-    d_oct_enabled = common_fraction >= safe_fraction_threshold
+    # Whole-image coverage does not gate local registration. The compatibility
+    # argument is ignored; per-column support and geometry constraints remain.
+    safe_fraction_threshold = 0.0
+    d_oct_enabled = bool(domain.any())
     if not d_oct_enabled:
         zero_nodes = np.zeros((node_count, width), dtype=np.float32)
         return np.zeros((height, width), dtype=np.float32), {
             "d_oct_enabled": 0.0,
-            "d_oct_disabled_low_common_fraction": 1.0,
+            "d_oct_disabled_low_common_fraction": float(common_fraction < safe_fraction_threshold),
+            "d_oct_disabled_no_common_columns": float(not domain.any()),
             "d_oct_valid_columns": 0.0,
             "d_oct_valid_fraction": 0.0,
             "d_oct_common_domain_fraction": common_fraction,
@@ -958,6 +979,7 @@ def build_regularized_d_oct_field(
     stats = {
         "d_oct_enabled": 1.0,
         "d_oct_disabled_low_common_fraction": 0.0,
+        "d_oct_disabled_no_common_columns": 0.0,
         "d_oct_valid_columns": float(valid_count),
         "d_oct_valid_fraction": float(valid_count / max(width, 1)),
         "d_oct_common_domain_fraction": common_fraction,
