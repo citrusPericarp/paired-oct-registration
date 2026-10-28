@@ -11,7 +11,6 @@ from .registration_core import (
     A_OCT_SCALE_MIN,
     REGISTRATION_TERMINAL_GUARD,
     build_a_oct_map,
-    build_regularized_d_oct_field,
     choose_translation,
     compose_paper_map,
     estimate_column_observability,
@@ -32,6 +31,7 @@ from .registration_utils import (
     save_gray,
 )
 from .reconstruction import sampling_map
+from .lateral_registration import estimate_bounded_lateral_d_oct
 
 
 def register_pair(
@@ -184,34 +184,25 @@ def register_pair(
     ) >= 0.5
     local_valid_columns = preoperative_geometry & postoperative_geometry_at_target & registration_domain
 
-    residual_field, local_stats, residual_nodes = build_regularized_d_oct_field(
-        preoperative,
-        postoperative_for_local_registration,
-        preoperative_registration_boundary,
-        local_valid_columns,
-        node_count=node_count,
-        minimum_valid_fraction=minimum_valid_fraction,
-    )
-    source_x, source_y, initial_stats = compose_paper_map(
-        preoperative_registration_boundary,
-        postoperative_registration_boundary,
-        forward_tx,
-        residual_field,
-        a_valid_override=preoperative_geometry,
-        b_valid_override=postoperative_geometry,
+    if node_count != 64:
+        raise ValueError("The bounded-lateral D-OCT protocol uses 64 depth nodes")
+    _, _, initial_stats = compose_paper_map(
+        preoperative_registration_boundary, postoperative_registration_boundary,
+        forward_tx, np.zeros_like(preoperative),
+        a_valid_override=preoperative_geometry, b_valid_override=postoperative_geometry,
         local_geometry=True,
     )
     # Save the actual coordinate anchors, rather than recovering them later
     # from rounded observability scores or unprocessed model boundaries.
     parameters = dict(
-        format_version=np.int32(2),
-        registration_algorithm_version=np.asarray("20261001-no-whole-image-gate"),
+        format_version=np.int32(3),
+        registration_algorithm_version=np.asarray("20261028-gray-smooth-bounded-lateral"),
         image_shape=np.asarray(preoperative.shape, dtype=np.int32),
-        source_x_line=source_x[0].copy(),
+        source_x_line=source_x_initial[0].copy(),
         initial_target_top=target_top.copy(),
         residual_target_upper=preoperative_registration_boundary.upper.copy(),
         residual_target_lower=preoperative_registration_boundary.lower.copy(),
-        residual_nodes=residual_nodes,
+        residual_nodes=np.zeros((64,preoperative.shape[1]),dtype=np.float32),
         initial_axial_scale=axial_scale,
         initial_postoperative_top=postoperative_top,
         forward_translation_x=np.float64(forward_tx),
@@ -223,6 +214,11 @@ def register_pair(
         preoperative_observation_score=np.asarray(preoperative_observation["score"], dtype=np.float32),
         postoperative_observation_score=np.asarray(postoperative_observation["score"], dtype=np.float32),
     )
+    axial_nodes, lateral_nodes, local_stats = estimate_bounded_lateral_d_oct(
+        preoperative, postoperative_for_local_registration, parameters
+    )
+    parameters.update(residual_nodes=axial_nodes,lateral_nodes=lateral_nodes,
+                      lateral_scale=np.float64(local_stats['lateral_retained_scale']))
     source_x, source_y = sampling_map(parameters)
     source_map_valid = _map_valid(source_x, source_y, postoperative.shape)
     registered_postoperative = remap_with_map(

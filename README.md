@@ -7,7 +7,8 @@ reconstructing registered images from saved transforms.
 
 The pipeline uses retinal masks and boundaries as structural priors:
 **A-OCT** estimates global lateral alignment and column-wise axial correction;
-**D-OCT** refines local alignment with texture-based dynamic time warping.
+**D-OCT** estimates axial and bounded lateral residuals using gray-intensity
+and axial-gradient dynamic time warping, followed by spatial smoothing.
 
 ## Installation
 
@@ -58,8 +59,31 @@ Reconstruction also reads the `deformation` path from the manifest.
 | `aligned_mask_B/`, `aligned_boundary_B/` | Transformed masks and their boundaries |
 | `valid_mask/` | Pixels with valid source sampling coordinates |
 | `evaluation_mask/` | Overlap of the preoperative and registered retinal masks |
-| `deformation/` | Saved registration parameters (`.npz`, format 2) |
+| `deformation/` | Saved registration parameters (`.npz`, format 3) |
 | `registration_manifest.csv`, `failures.json` | Output paths and processing status |
+
+## Saved vector transforms
+
+The selected D-OCT method retains 64 depth nodes, intensity/gradient weights
+0.72/0.28 and Gaussian smoothing with standard deviations of 2 nodes and 6
+columns. Lateral candidates are -4, -2, 0, 2 and 4 target-grid pixels; there is
+no patch-based structural matching. Axial residuals are bounded by 12 pixels.
+Both components vanish at the processed retinal anchors. A geometric projection
+reduces the lateral component when necessary to keep bilinear-cell Jacobians
+positive. Empty supported domains retain A-OCT.
+
+Format 3 preserves `residual_nodes` (axial, 64 x width) and adds
+`lateral_nodes` (64 x width) and scalar `lateral_scale`. The latter stores the
+retained lateral amplitude after geometric projection. `source_x_line` and
+`initial_*` fields always describe the frozen A-OCT map. The two residual
+components are interpolated along depth, composed in normalized retinal-depth
+coordinates, and then composed with A-OCT before one native-B resampling.
+The reconstruction command also accepts legacy archives without lateral nodes.
+
+An outer-boundary endpoint frozen after A-OCT is shared by D-OCT by definition;
+it is not an independent test that the final field preserves every native model
+boundary. Directly transformed native boundaries, frozen stage boundaries and
+fresh predictions on registered images are distinct measurements.
 
 ## Code layout
 

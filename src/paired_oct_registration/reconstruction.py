@@ -7,7 +7,7 @@ from pathlib import Path
 import numpy as np
 
 
-def sampling_map(parameters: Mapping[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+def _axial_sampling_map(parameters: Mapping[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
     height, width = (int(v) for v in parameters["image_shape"])
     nodes = np.asarray(parameters["residual_nodes"], dtype=np.float32)
     upper = np.asarray(parameters["residual_target_upper"], dtype=np.float32)
@@ -28,6 +28,42 @@ def sampling_map(parameters: Mapping[str, np.ndarray]) -> tuple[np.ndarray, np.n
     source_y = source_top[None, :] + scale[None, :] * (y[:, None] + field - target_top[None, :])
     source_x = np.broadcast_to(np.asarray(parameters["source_x_line"], dtype=np.float32)[None, :], (height, width)).copy()
     return source_x, source_y.astype(np.float32)
+
+
+def sampling_map(parameters: Mapping[str, np.ndarray]) -> tuple[np.ndarray, np.ndarray]:
+    """Read legacy axial archives and format-3 axial/lateral vector archives."""
+    if 'lateral_nodes' not in parameters:
+        return _axial_sampling_map(parameters)
+    lateral = np.asarray(parameters['lateral_nodes'],dtype=np.float32)
+    retained = float(parameters.get('lateral_scale',1.0))
+    if not np.any(lateral) or retained == 0.:
+        return _axial_sampling_map(parameters)
+    nodes = np.asarray(parameters['residual_nodes'],dtype=np.float32)
+    height,width = (int(v) for v in parameters['image_shape'])
+    upper = np.asarray(parameters['residual_target_upper'],dtype=np.float32)
+    lower = np.asarray(parameters['residual_target_lower'],dtype=np.float32)
+    fields = np.zeros((2,height,width),dtype=np.float32)
+    yy,xx = np.indices((height,width),dtype=np.float32)
+    unit = np.linspace(0.,1.,nodes.shape[0],dtype=np.float32)
+    for x in range(width):
+        top,bottom = float(upper[x]),float(lower[x])
+        if bottom <= top+4.:
+            continue
+        positions = top+unit*(bottom-top)
+        for component,values in enumerate([nodes,lateral]):
+            fields[component,:,x] = np.interp(yy[:,x],positions,values[:,x],left=0.,right=0.)
+    cols = np.arange(width)
+    qx = xx+fields[1]*retained
+    thickness = lower-upper
+    shifted_upper = np.interp(qx,cols,upper).astype(np.float32)
+    shifted_thickness = np.interp(qx,cols,thickness).astype(np.float32)
+    qy = yy+fields[0]+(shifted_upper-upper[None,:])+((yy+fields[0]-upper[None,:])/np.maximum(thickness[None,:],1e-6))*(shifted_thickness-thickness[None,:])
+    source_x = np.interp(qx,cols,parameters['source_x_line']).astype(np.float32)
+    scale = np.interp(qx,cols,parameters['initial_axial_scale']).astype(np.float32)
+    source_top = np.interp(qx,cols,parameters['initial_postoperative_top']).astype(np.float32)
+    target_top = np.interp(qx,cols,parameters['initial_target_top']).astype(np.float32)
+    source_y = source_top+scale*(qy-target_top)
+    return source_x,source_y.astype(np.float32)
 
 
 def reconstruct_pair(dataset: Path, row: Mapping[str, str], output: Path) -> None:

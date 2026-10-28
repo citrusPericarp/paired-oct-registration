@@ -21,11 +21,12 @@ def test_d_oct_domain_follows_shifted_source_columns(tmp_path, monkeypatch):
         "selected_forward_tx": 16.0, "fovea_tx": 16.0, "translation_source": "fovea_safe"})
     captured = {}
 
-    def local_field(a, ao, b, columns, **kwargs):
-        captured["columns"] = columns.copy()
-        return np.zeros(shape, np.float32), {"d_oct_enabled": 0.0}, np.zeros((64, 768), np.float32)
+    def local_field(a, ao, parameters):
+        captured["columns"] = parameters['local_geometry_domain'].astype(bool).copy()
+        return (np.zeros((64, 768), np.float32), np.zeros((64, 768), np.float32),
+                {"d_oct_enabled": 0.0, "lateral_retained_scale": 1.0})
 
-    monkeypatch.setattr(pipeline, "build_regularized_d_oct_field", local_field)
+    monkeypatch.setattr(pipeline, "estimate_bounded_lateral_d_oct", local_field)
     paths = {name: tmp_path / "unused" for name in ["preoperative_image_path", "postoperative_image_path",
              "preoperative_mask_path", "postoperative_mask_path", "preoperative_boundary_path", "postoperative_boundary_path"]}
     result = pipeline.register_pair(sample_id="test", **paths, output_root=tmp_path)
