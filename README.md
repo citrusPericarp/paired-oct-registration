@@ -24,8 +24,14 @@ Use the extracted `paired_cataract_oct_dataset` directory as `--dataset`,
 or rename that directory to match the `../dataset` examples below.
 
 Cite the creator list, descriptive title and versioned DOI shown on the
-figshare record when using CataPair. The companion paper retains its
-descriptive title; CataPair is the dataset name.
+figshare record when using CataPair.
+
+## Companion paper
+
+**A paired dataset of retinal optical coherence tomography before and after cataract surgery**
+
+CataPair is the dataset name. The paper describes the paired retinal OCT
+resource, its processing and technical validation.
 
 ## Installation
 

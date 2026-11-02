@@ -19,7 +19,14 @@ CataPair包含98位患者的2,000组配对黄斑B-scan，共4,000幅原生图像
 或将该目录改名以匹配下文的`../dataset`示例。
 
 使用CataPair时，请按figshare记录中的作者、描述性题名和版本化DOI引用数据。
-论文保留描述性题名，CataPair作为数据集专名使用。
+CataPair作为数据集专名使用。
+
+## 配套论文
+
+**A paired dataset of retinal optical coherence tomography before and after cataract surgery**
+
+中文题名：白内障手术前后配对视网膜OCT数据集。
+论文介绍配对视网膜OCT资源、处理过程及技术验证。
 
 ## 安装
 
