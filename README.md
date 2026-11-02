@@ -1,14 +1,31 @@
-# Paired OCT Registration
+# CataPair: paired OCT registration
 
 **English** | [简体中文](README_CN.md)
 
-Code for registering postoperative OCT B-scans to paired preoperative scans and
-reconstructing registered images from saved transforms.
+Registration and reconstruction code for **CataPair**, a dataset of paired
+retinal OCT before and after cataract surgery. This package registers
+postoperative B-scans to paired preoperative scans and reconstructs registered
+images from saved transforms.
 
 The pipeline uses retinal masks and boundaries as structural priors:
 **A-OCT** estimates global lateral alignment and column-wise axial correction;
 **D-OCT** estimates axial and bounded lateral residuals using gray-intensity
 and axial-gradient dynamic time warping, followed by spatial smoothing.
+
+## Dataset
+
+CataPair contains 2,000 paired macular B-scans from 98 patients, including
+4,000 native images, registration products, model-derived structural priors
+and patient-level splits. Download the dataset and its README from
+[figshare](https://doi.org/10.6084/m9.figshare.34865406). The data are licensed
+under CC BY 4.0; this code is licensed under MIT.
+
+Use the extracted `paired_cataract_oct_dataset` directory as `--dataset`,
+or rename that directory to match the `../dataset` examples below.
+
+Cite the creator list, descriptive title and versioned DOI shown on the
+figshare record when using CataPair. The companion paper retains its
+descriptive title; CataPair is the dataset name.
 
 ## Installation
 

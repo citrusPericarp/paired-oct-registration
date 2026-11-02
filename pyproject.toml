@@ -5,7 +5,7 @@ build-backend = "setuptools.build_meta"
 [project]
 name = "paired-oct-registration"
 version = "0.4.0"
-description = "Reproducible registration for paired preoperative and postoperative OCT B-scans"
+description = "Registration and reconstruction for CataPair preoperative and postoperative retinal OCT B-scans"
 requires-python = ">=3.10"
 dependencies = [
   "matplotlib>=3.7",
