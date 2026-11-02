@@ -23,8 +23,10 @@ under CC BY 4.0; this code is licensed under MIT.
 Use the extracted `paired_cataract_oct_dataset` directory as `--dataset`,
 or rename that directory to match the `../dataset` examples below.
 
-Cite the creator list, descriptive title and versioned DOI shown on the
-figshare record when using CataPair.
+When using CataPair, cite the published dataset version:
+
+Chen, Z. (2026). *A paired dataset of retinal optical coherence tomography before and after cataract surgery*.
+figshare. [Version 2](https://doi.org/10.6084/m9.figshare.34865406.v2).
 
 ## Companion paper
 
